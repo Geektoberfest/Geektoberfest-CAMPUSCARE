@@ -56,39 +56,54 @@ def predict_category(text):
 # -----------------------------
 
 def predict_priority(text):
-
     text = text.lower()
 
     high_words = [
         "emergency",
         "urgent",
         "danger",
-        "fire",
-        "accident",
-        "unsafe",
-        "medical",
-        "security",
         "immediately",
-        "power outage",
-        "no water"
+        "accident",
+        "fire",
+        "medical",
+        "injury",
+        "severe",
+        "critical",
+        "life-threatening",
+        "electric shock",
+        "gas leak",
+        "security threat",
+        "harassment"
     ]
 
     medium_words = [
-        "not working",
         "broken",
-        "slow",
+        "not working",
         "problem",
         "issue",
+        "failure",
         "damaged",
-        "missing"
+        "leaking",
+        "delay",
+        "late",
+        "unavailable",
+        "unable to access",
+        "missing",
+        "repair",
+        "overcrowded"
     ]
 
-    if any(word in text for word in high_words):
-        return "High"
+    # Check for high-priority complaints
+    for word in high_words:
+        if word in text:
+            return "High"
 
-    if any(word in text for word in medium_words):
-        return "Medium"
+    # Check for medium-priority complaints
+    for word in medium_words:
+        if word in text:
+            return "Medium"
 
+    # Default priority
     return "Low"
 
 
