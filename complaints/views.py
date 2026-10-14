@@ -1,6 +1,11 @@
 from django.shortcuts import render
 from .models import Complaint
-from .ml import predict_category, predict_priority, detect_duplicate
+from .ml import (
+    predict_category_with_confidence,
+    predict_priority,
+    detect_duplicate
+)
+
 
 def home(request):
     result = None
@@ -10,7 +15,7 @@ def home(request):
         description = request.POST.get("description")
 
         if student_name and description:
-            category = predict_category(description)
+            category, confidence = predict_category_with_confidence(description)
             priority = predict_priority(description)
             duplicate = detect_duplicate(description)
 
@@ -22,19 +27,23 @@ def home(request):
                 "Transport": "Transport Office"
             }
 
+            department = departments.get(category, "Administration")
+
             Complaint.objects.create(
                 student_name=student_name,
                 description=description,
                 category=category,
                 priority=priority,
-                department=departments.get(category, "Administration"),
-                is_duplicate=duplicate
+                department=department,
+                is_duplicate=duplicate,
+                confidence=confidence
             )
 
             result = {
                 "category": category,
+                "confidence": round(confidence * 100, 1),
                 "priority": priority,
-                "department": departments.get(category, "Administration"),
+                "department": department,
                 "duplicate": duplicate
             }
 

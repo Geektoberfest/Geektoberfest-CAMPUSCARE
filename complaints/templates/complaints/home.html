@@ -57,7 +57,7 @@
         }
         .grid{
             display:grid;
-            grid-template-columns:repeat(3,1fr);
+            grid-template-columns:repeat(4,1fr);
             gap:15px;
             margin-top:20px;
         }
@@ -73,7 +73,8 @@
         .medium{color:#d9822b}
         .low{color:#16805c}
         .duplicate{margin-top:18px;font-weight:700}
-        @media(max-width:700px){.grid{grid-template-columns:1fr}.hero h1{font-size:34px}}
+        @media(max-width:768px){.grid{grid-template-columns:1fr 1fr}.hero h1{font-size:34px}}
+        @media(max-width:500px){.grid{grid-template-columns:1fr}}
     </style>
 </head>
 
@@ -82,12 +83,12 @@
 
     <div class="hero">
         <h1>🏫 CampusCare</h1>
-        <p>Smart Campus Complaint Portal</p>
+        <p>Intelligent Campus Complaint Triage Portal</p>
     </div>
 
     <div class="card">
         <h2>Submit a Complaint</h2>
-        <p>Describe your issue and CampusCare will automatically analyse it.</p>
+        <p>Describe your issue and CampusCare will automatically analyze, prioritize, and route it.</p>
 
         <form method="post">
             {% csrf_token %}
@@ -97,7 +98,7 @@
 
             <label>Complaint</label>
             <textarea name="description" rows="6"
-                placeholder="Example: Wi-Fi is not working in Block C"
+                placeholder="Example: Wi-Fi is not working in Block C / Water shortage in hostel..."
                 required></textarea>
 
             <button type="submit">Analyze & Submit Complaint</button>
@@ -112,6 +113,11 @@
             <div class="metric">
                 <small>Category</small>
                 <strong>{{ result.category }}</strong>
+            </div>
+
+            <div class="metric">
+                <small>Confidence</small>
+                <strong>{{ result.confidence }}%</strong>
             </div>
 
             <div class="metric">

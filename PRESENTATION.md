@@ -20,29 +20,31 @@ A student submits a complaint and the system:
 Use examples such as:
 
 ```text
-Wi-Fi is not working in Block C
+Wi-Fi router in Block D keeps restarting and dropping connections
 ```
-
-Expected category: IT & Wi-Fi.
-
-And:
+Expected category: IT & Wi-Fi, confidence: >90%, priority: Medium.
 
 ```text
-Emergency! There is no water supply in the hostel.
+Electric shock felt from metal switchboard in physics laboratory
 ```
+Expected category: Infrastructure, priority: High (Life-safety hazard trigger), department: Maintenance.
 
-Expected category: Hostel and priority: High.
+```text
+This is not an emergency, just need information on bus fee payment
+```
+Expected category: Transport, priority: Low (Negation-aware: ignores 'emergency' when negated).
 
 ## Current Gaps
 
-The prototype does not provide a custom admin dashboard, advanced multilingual support, or a more advanced complaint-intelligence pipeline. These are intentionally suitable areas for participant contributions.
+The complaint triage engine now provides high-accuracy category prediction, calibrated confidence scores, and negation-aware priority rules. Open areas for participant contributions include building a staff admin analytics dashboard, email/SMS notifications, and speech-to-text input.
 
 ## Main Technical Concepts
 
-- Django request/response flow
-- Django ORM and SQLite
-- TF-IDF text representation
-- Logistic Regression classification
-- Cosine similarity
+- Django request/response flow & ORM
+- Calibrated probability confidence estimation (`predict_proba`)
+- Sublinear TF-IDF text representation with n-grams
+- Regularized Logistic Regression with balanced class weights
+- Multi-tiered negation-aware priority triage
+- Cosine similarity duplicate detection
 - HTML/CSS forms
-- Automated Django tests
+- Automated Django test suite & benchmark evaluation
