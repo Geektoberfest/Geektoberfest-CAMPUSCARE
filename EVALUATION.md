@@ -90,7 +90,7 @@ We evaluated multiple classifiers across the training corpus:
 
 ## 5. Honest Statement of Limitations
 
-1. **Synthetic Training Data**: The training dataset (600 rows in `data/complaints.csv`) is generated from domain-expanded synthetic templates. While significantly broader than the baseline, real student submissions may include unpredictable typographical errors, heavy slang, or novel phrasing not captured in template permutations.
+1. **Synthetic Training Data**: The training dataset (1,000 rows in `data/complaints.csv`, 200 per category and 50 per language per category) is generated from domain-expanded synthetic templates. While significantly broader than the baseline, real student submissions may include unpredictable typographical errors, heavy slang, or novel phrasing not captured in template permutations.
 2. **Confidence Calibration on Completely Out-of-Domain Text**: Logistic regression with TF-IDF can occasionally assign moderate confidence (~40–55%) to completely out-of-domain text if generic tokens overlap with training vocabulary.
 3. **Keyword-Based Priority Boundaries**: While negation handling and hazard expansion resolve 98% of priority cases, complex semantic scenarios (e.g. nuanced sarcasm or layered clauses) would benefit from an LLM-based secondary triage classifier when deployed with server-grade compute.
 

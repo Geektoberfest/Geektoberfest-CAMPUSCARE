@@ -9,7 +9,8 @@ CAMPUSCARE is a Django-based smart campus complaint portal that uses machine lea
 ## Current Prototype
 
 Students can:
-- Submit a campus complaint
+- Submit a campus complaint in English, Hindi, Hinglish, or Marathi
+- Get an automatically detected complaint language
 - Get an automatically predicted complaint category
 - Get a calibrated prediction confidence score
 - Get an intelligent priority level with hazard and negation handling
@@ -21,15 +22,17 @@ Complaints are stored in SQLite for local development and PostgreSQL when deploy
 ## How It Works
 
 ```text
-Student Complaint
+Student Complaint (English / Hindi / Hinglish / Marathi)
+       ↓
+Language Detection & Unicode Normalization
        ↓
 Preprocessing & Contraction Expansion
        ↓
-Sublinear TF-IDF Text Features (Unigrams & Bigrams)
+Script-Aware, Sublinear TF-IDF Text Features (Unigrams & Bigrams)
        ↓
 Category Prediction & Confidence Estimation
        ↓
-Negation-Aware Priority Triage
+Multilingual, Negation-Aware Priority Triage
        ↓
 Department Routing
        ↓
@@ -37,6 +40,8 @@ Duplicate Detection
        ↓
 SQLite / PostgreSQL Database
 ```
+
+For detailed architectural trade-offs, language detection heuristics, and limitations, refer to [MULTILINGUAL.md](MULTILINGUAL.md).
 
 For detailed benchmark comparisons, classifier experiments, and stated limitations, see [EVALUATION.md](EVALUATION.md).
 
@@ -54,7 +59,7 @@ Python, Django, Pandas, NumPy, scikit-learn, TF-IDF, Logistic Regression, HTML/C
 
 ## Dataset
 
-The repository includes a 600-row synthetic campus complaint dataset in `data/complaints.csv`.
+The repository includes a 1,000-row synthetic campus complaint dataset in `data/complaints.csv` covering English, Hindi, Hinglish, and Marathi complaints across 5 categories.
 
 The dataset is provided for development and competition purposes. It is synthetic and should not be treated as real student feedback.
 

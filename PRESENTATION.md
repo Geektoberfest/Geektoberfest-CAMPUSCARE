@@ -22,21 +22,38 @@ Use examples such as:
 ```text
 Wi-Fi router in Block D keeps restarting and dropping connections
 ```
-Expected category: IT & Wi-Fi, confidence: >90%, priority: Medium.
+Expected language: English, category: IT & Wi-Fi, confidence: about 78%, priority: Medium.
 
 ```text
 Electric shock felt from metal switchboard in physics laboratory
 ```
-Expected category: Infrastructure, priority: High (Life-safety hazard trigger), department: Maintenance.
+Expected language: English, category: Infrastructure, priority: High (Life-safety hazard trigger), department: Maintenance.
 
 ```text
 This is not an emergency, just need information on bus fee payment
 ```
 Expected category: Transport, priority: Low (Negation-aware: ignores 'emergency' when negated).
 
+```text
+हॉस्टल में पानी नहीं आ रहा है
+```
+Expected language: Hindi, category: Hostel.
+
+```text
+Hostel mein paani nahi aa raha hai
+```
+Expected language: Hinglish, category: Hostel.
+
+```text
+वसतिगृहात पाण्याचा पुरवठा बंद आहे
+```
+Expected language: Marathi, category: Hostel.
+
 ## Current Gaps
 
-The complaint triage engine now provides high-accuracy category prediction, calibrated confidence scores, and negation-aware priority rules. Open areas for participant contributions include building a staff admin analytics dashboard, email/SMS notifications, and speech-to-text input.
+## Current Gaps
+
+The prototype provides full multilingual complaint intake (English, Hindi, Hinglish, Marathi) with calibrated confidence scores and negation-aware priority rules. Open areas for future contributions include building a staff admin analytics dashboard, speech-to-text input, and automated email/SMS status alerts.
 
 ## Main Technical Concepts
 

@@ -9,6 +9,7 @@ class Complaint(models.Model):
     department = models.CharField(max_length=50, default="Pending")
     status = models.CharField(max_length=20, default="Open")
     is_duplicate = models.BooleanField(default=False)
+    language = models.CharField(max_length=20, default="English")
     confidence = models.FloatField(default=1.0)
     created_at = models.DateTimeField(auto_now_add=True)
 

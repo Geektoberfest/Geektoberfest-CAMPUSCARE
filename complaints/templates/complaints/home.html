@@ -83,12 +83,12 @@
 
     <div class="hero">
         <h1>🏫 CampusCare</h1>
-        <p>Intelligent Campus Complaint Triage Portal</p>
+        <p>Smart Multilingual Campus Complaint Portal (Supports English, Hindi, Hinglish, Marathi)</p>
     </div>
 
     <div class="card">
         <h2>Submit a Complaint</h2>
-        <p>Describe your issue and CampusCare will automatically analyze, prioritize, and route it.</p>
+        <p>Describe your issue in English, Hindi (हिन्दी), Hinglish, or Marathi (मराठी) and CampusCare will automatically analyze it.</p>
 
         <form method="post">
             {% csrf_token %}
@@ -98,7 +98,7 @@
 
             <label>Complaint</label>
             <textarea name="description" rows="6"
-                placeholder="Example: Wi-Fi is not working in Block C / Water shortage in hostel..."
+                placeholder="Example: Wi-Fi is not working in Block C / हॉस्टल में पानी नहीं आ रहा है / वसतिगृहात पाणी येत नाही / Hostel mein light issue hai"
                 required></textarea>
 
             <button type="submit">Analyze & Submit Complaint</button>
@@ -110,6 +110,11 @@
         <h2>✅ Complaint Analyzed</h2>
 
         <div class="grid">
+            <div class="metric">
+                <small>Language</small>
+                <strong>{{ result.language }}</strong>
+            </div>
+
             <div class="metric">
                 <small>Category</small>
                 <strong>{{ result.category }}</strong>
