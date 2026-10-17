@@ -1,12 +1,24 @@
-import os
+"""ML helpers for complaint classification and duplicate detection.
+
+Design goals:
+- No heavy work at import time. Importing this module must NOT read CSVs,
+  import pandas, or fit any model. Models are loaded lazily on first use.
+- Pre-trained artifacts (``data/ml_models/*.joblib``) are built once at
+  deploy/build time via ``python manage.py train_ml`` and then just
+  loaded from disk at runtime (fast cold starts on Render free plan).
+- ``detect_duplicate()`` reuses the already-fitted category vectorizer with
+  ``transform()`` instead of creating + ``fit_transform()``-ing a new
+  vectorizer over the whole DB on every call. It also only compares
+  against the most recent N complaints so cost stays bounded as the DB
+  grows.
+"""
+
 import re
+import threading
 import unicodedata
-import pandas as pd
+from pathlib import Path
 
 from django.conf import settings
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics.pairwise import cosine_similarity
 
 
 # -----------------------------
@@ -136,44 +148,91 @@ def detect_language(text):
 
 
 # -----------------------------
-# Load training dataset
+# Lazy model loading (no training at import time)
 # -----------------------------
 
-DATA_PATH = os.path.join(
-    settings.BASE_DIR,
-    "data",
-    "complaints.csv"
-)
+DATA_PATH = Path(settings.BASE_DIR) / "data" / "complaints.csv"
 
-data = pd.read_csv(DATA_PATH)
+MODELS_DIR = Path(settings.BASE_DIR) / "data" / "ml_models"
+VECTORIZER_PATH = MODELS_DIR / "vectorizer.joblib"
+CATEGORY_MODEL_PATH = MODELS_DIR / "category_model.joblib"
+
+# Tunables for duplicate detection.
+DUPLICATE_THRESHOLD = 0.75
+DUPLICATE_CHECK_LIMIT = 500  # bound per-request work as the DB grows.
+
+_lock = threading.Lock()
+_vectorizer = None
+_category_model = None
 
 
-# -----------------------------
-# Train category model
-# -----------------------------
+def _build_vectorizer():
+    from sklearn.feature_extraction.text import TfidfVectorizer
 
-vectorizer = TfidfVectorizer(
-    lowercase=True,
-    stop_words="english",
-    ngram_range=(1, 2),
-    token_pattern=TOKEN_PATTERN,
-    sublinear_tf=True,
-    max_df=0.9
-)
+    return TfidfVectorizer(
+        lowercase=True,
+        stop_words="english",
+        ngram_range=(1, 2),
+        token_pattern=TOKEN_PATTERN,
+        sublinear_tf=True,
+        max_df=0.9,
+    )
 
-X = vectorizer.fit_transform(data["complaint"].map(preprocess_text))
 
-category_model = LogisticRegression(
-    C=2.0,
-    max_iter=1000,
-    class_weight="balanced",
-    solver="lbfgs"
-)
+def _train_and_save():
+    """Train from ``data/complaints.csv`` and persist artifacts.
 
-category_model.fit(
-    X,
-    data["category"]
-)
+    Only called at build time (management command) or as a one-time
+    fallback if the artifacts are missing at runtime.
+    """
+    import joblib
+    import pandas as pd
+    from sklearn.linear_model import LogisticRegression
+
+    data = pd.read_csv(DATA_PATH)
+
+    vectorizer = _build_vectorizer()
+    X = vectorizer.fit_transform(data["complaint"].map(preprocess_text))
+
+    category_model = LogisticRegression(
+        C=2.0,
+        max_iter=1000,
+        class_weight="balanced",
+        solver="lbfgs",
+    )
+    category_model.fit(X, data["category"])
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(vectorizer, VECTORIZER_PATH)
+    joblib.dump(category_model, CATEGORY_MODEL_PATH)
+
+    return vectorizer, category_model
+
+
+def _get_models():
+    """Load (once, thread-safely) the persisted vectorizer + model."""
+    global _vectorizer, _category_model
+
+    if _vectorizer is not None and _category_model is not None:
+        return _vectorizer, _category_model
+
+    with _lock:
+        # Double-checked locking: another thread may have loaded already.
+        if _vectorizer is not None and _category_model is not None:
+            return _vectorizer, _category_model
+
+        import joblib
+
+        try:
+            _vectorizer = joblib.load(VECTORIZER_PATH)
+            _category_model = joblib.load(CATEGORY_MODEL_PATH)
+        except Exception:
+            # Artifacts missing/corrupt (e.g. fresh clone without running
+            # train_ml, or sklearn version skew): train once, then serve
+            # from memory afterwards.
+            _vectorizer, _category_model = _train_and_save()
+
+        return _vectorizer, _category_model
 
 
 # -----------------------------
@@ -182,6 +241,7 @@ category_model.fit(
 
 def predict_category(text):
     """Predict category label (backward-compatible signature)."""
+    vectorizer, category_model = _get_models()
     cleaned = preprocess_text(text)
     text_vector = vectorizer.transform([cleaned])
     return category_model.predict(text_vector)[0]
@@ -189,6 +249,7 @@ def predict_category(text):
 
 def predict_category_with_confidence(text):
     """Predict category label along with calibrated probability confidence score."""
+    vectorizer, category_model = _get_models()
     cleaned = preprocess_text(text)
     text_vector = vectorizer.transform([cleaned])
     probs = category_model.predict_proba(text_vector)[0]
@@ -235,35 +296,35 @@ def predict_priority(text):
 # Detect duplicate complaints
 # -----------------------------
 
-def detect_duplicate(text):
+def detect_duplicate(text, threshold=DUPLICATE_THRESHOLD,
+                     limit=DUPLICATE_CHECK_LIMIT):
+    if not text or not text.strip():
+        return False
+
+    from sklearn.metrics.pairwise import cosine_similarity
+
     from .models import Complaint
 
+    vectorizer, _ = _get_models()
+
     complaints = list(
-        Complaint.objects.values_list(
+        Complaint.objects.order_by("-id").values_list(
             "description",
             flat=True
-        )
+        )[:limit]
     )
 
     if not complaints:
         return False
 
-    cleaned_text = preprocess_text(text)
-    all_text = [preprocess_text(c) for c in complaints] + [cleaned_text]
-
-    duplicate_vectorizer = TfidfVectorizer(
-        lowercase=True,
-        stop_words="english",
-        token_pattern=TOKEN_PATTERN,
-        ngram_range=(1, 2),
-        sublinear_tf=True
+    # Reuse the pre-fitted vectorizer: transform-only, no re-fitting over
+    # the whole table on every request. Texts are preprocessed first to
+    # match training. `limit` keeps per-request cost bounded as the DB grows.
+    existing_matrix = vectorizer.transform(
+        [preprocess_text(c) for c in complaints]
     )
+    new_vector = vectorizer.transform([preprocess_text(text)])
 
-    matrix = duplicate_vectorizer.fit_transform(all_text)
+    similarities = cosine_similarity(new_vector, existing_matrix)[0]
 
-    similarities = cosine_similarity(
-        matrix[-1],
-        matrix[:-1]
-    )[0]
-
-    return similarities.max() >= 0.75
+    return bool((similarities >= threshold).any())

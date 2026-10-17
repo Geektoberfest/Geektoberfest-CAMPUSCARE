@@ -1,26 +1,28 @@
-"""
-Complaint evaluation tests for CAMPUSCARE.
 
-Run with:
-    python manage.py test complaints
 
-These tests verify that category and priority predictions behave as expected
-for representative examples across all supported categories and priority levels.
 
-NOTE: This hand-written evaluation set checks known representative inputs only.
-It does not prove real-world model accuracy on unseen data.
-"""
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-from django.test import Client, TestCase
-from .models import Complaint
-from .ml import (
-    predict_category,
-    predict_category_with_confidence,
-    predict_priority,
-    detect_language,
-    detect_duplicate
-)
+def make_complaint(**kwargs):
+    """Create a Complaint with sensible defaults."""
+    defaults = dict(
+        student_name="Test Student",
+        description="Wi-Fi is not working in Block A",
+        category="IT & Wi-Fi",
+        priority="Medium",
+        department="IT Department",
+        status="Open",
+        is_duplicate=False,
+    )
+    defaults.update(kwargs)
+    return Complaint.objects.create(**defaults)
 
+
+# ---------------------------------------------------------------------------
+# 1. Complaint model tests
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # 1. Model field tests
@@ -30,22 +32,458 @@ class ComplaintModelTest(TestCase):
     """Basic sanity checks for the Complaint database model."""
 
     def test_complaint_creation_stores_all_fields(self):
-        """Complaint is persisted with every field correctly."""
-        complaint = Complaint.objects.create(
-            student_name="Test Student",
-            description="Wi-Fi is not working in Block A",
-            category="IT & Wi-Fi",
-            priority="Medium",
-            department="IT Department",
-            confidence=0.92
+        """All Complaint fields are persisted correctly."""
+        c = make_complaint()
+        self.assertEqual(c.student_name, "Test Student")
+        self.assertEqual(c.category, "IT & Wi-Fi")
+        self.assertEqual(c.priority, "Medium")
+        self.assertEqual(c.department, "IT Department")
+        self.assertEqual(c.description, "Wi-Fi is not working in Block A")
+        self.assertEqual(c.language, "English")
+
+    def test_default_status_is_open(self):
+        """Newly created complaints default to Open status."""
+        c = make_complaint()
+        self.assertEqual(c.status, "Open")
+
+    def test_default_is_not_duplicate(self):
+        """Newly created complaints default to not-duplicate."""
+        c = make_complaint()
+        self.assertFalse(c.is_duplicate)
+
+    def test_str_representation(self):
+        """__str__ returns '<student_name> - <category>'."""
+        c = make_complaint()
+        self.assertEqual(str(c), "Test Student - IT & Wi-Fi")
+
+    def test_status_can_be_updated(self):
+        """Complaint status can be updated and persists to the DB."""
+        c = make_complaint()
+        c.status = "Resolved"
+        c.save()
+        refreshed = Complaint.objects.get(pk=c.pk)
+        self.assertEqual(refreshed.status, "Resolved")
+        
+    def test_confidence_is_stored(self):
+        """Confidence value is persisted correctly."""
+        c = make_complaint(confidence=0.92)
+        self.assertAlmostEqual(c.confidence, 0.92, places=2)
+        
+        
+# ---------------------------------------------------------------------------
+# 2. Student-facing home view (unchanged behaviour)
+# ---------------------------------------------------------------------------
+
+class HomeViewTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_get_home_returns_200(self):
+        response = self.client.get(reverse('home'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_post_complaint_creates_record(self):
+        self.client.post(reverse('home'), {
+            'student_name': 'Alice',
+            'description': 'Wi-Fi is not working in Block C',
+        })
+        self.assertEqual(Complaint.objects.count(), 1)
+
+    def test_post_complaint_returns_200(self):
+        response = self.client.post(reverse('home'), {
+            'student_name': 'Alice',
+            'description': 'Bus is arriving late',
+        })
+        self.assertEqual(response.status_code, 200)
+
+    def test_post_complaint_result_in_context(self):
+        response = self.client.post(reverse('home'), {
+            'student_name': 'Alice',
+            'description': 'Wi-Fi is not working in Block C',
+        })
+        self.assertIn('result', response.context)
+        result = response.context['result']
+        self.assertIn('category', result)
+        self.assertIn('priority', result)
+        self.assertIn('duplicate', result)
+
+    def test_post_duplicate_complaint_flagged(self):
+        payload = {
+            'student_name': 'Alice',
+            'description': 'Wi-Fi is not working in Block A hostel area',
+        }
+        self.client.post(reverse('home'), payload)
+        response = self.client.post(reverse('home'), payload)
+        self.assertTrue(response.context['result']['duplicate'])
+
+
+# ---------------------------------------------------------------------------
+# 3. Dashboard access control
+# ---------------------------------------------------------------------------
+
+class DashboardAccessControlTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.staff_user = User.objects.create_user(
+            username='staffuser', password='testpass123', is_staff=True
         )
-        self.assertEqual(complaint.student_name, "Test Student")
-        self.assertEqual(complaint.description, "Wi-Fi is not working in Block A")
-        self.assertEqual(complaint.category, "IT & Wi-Fi")
-        self.assertEqual(complaint.priority, "Medium")
-        self.assertEqual(complaint.department, "IT Department")
-        self.assertEqual(complaint.language, "English")
-        self.assertAlmostEqual(complaint.confidence, 0.92, places=2)
+        self.regular_user = User.objects.create_user(
+            username='student', password='testpass123', is_staff=False
+        )
+
+    def test_unauthenticated_redirected_to_login(self):
+        """Unauthenticated request to /dashboard/ is redirected to login."""
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_non_staff_user_redirected(self):
+        """A logged-in non-staff user cannot access the dashboard."""
+        self.client.login(username='student', password='testpass123')
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 302)
+
+    def test_staff_user_can_access_dashboard(self):
+        """A staff user gets HTTP 200 on the dashboard."""
+        self.client.login(username='staffuser', password='testpass123')
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_login_page_accessible(self):
+        """The login page is publicly accessible (HTTP 200)."""
+        response = self.client.get(reverse('login'))
+        self.assertEqual(response.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# 4. Dashboard summary counts
+# ---------------------------------------------------------------------------
+
+class DashboardSummaryTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.staff = User.objects.create_user(
+            username='staff', password='pass', is_staff=True
+        )
+        self.client.login(username='staff', password='pass')
+
+    def _get_summary(self):
+        response = self.client.get(reverse('dashboard'))
+        return response.context['summary']
+
+    def test_summary_total_count(self):
+        """Summary total equals number of Complaint records."""
+        make_complaint()
+        make_complaint(description="Bus is late")
+        summary = self._get_summary()
+        self.assertEqual(summary['total'], 2)
+
+    def test_summary_open_count(self):
+        """Summary open count reflects Open complaints only."""
+        make_complaint(status='Open')
+        make_complaint(status='Resolved')
+        summary = self._get_summary()
+        self.assertEqual(summary['open'], 1)
+
+    def test_summary_in_progress_count(self):
+        """Summary in_progress count reflects In Progress complaints."""
+        make_complaint(status='In Progress')
+        make_complaint(status='Open')
+        summary = self._get_summary()
+        self.assertEqual(summary['in_progress'], 1)
+
+    def test_summary_resolved_count(self):
+        """Summary resolved count reflects Resolved complaints only."""
+        make_complaint(status='Resolved')
+        make_complaint(status='Open')
+        summary = self._get_summary()
+        self.assertEqual(summary['resolved'], 1)
+
+    def test_summary_high_priority_count(self):
+        """Summary high_priority count reflects High priority complaints."""
+        make_complaint(priority='High')
+        make_complaint(priority='Medium')
+        make_complaint(priority='Low')
+        summary = self._get_summary()
+        self.assertEqual(summary['high_priority'], 1)
+
+    def test_summary_duplicate_count(self):
+        """Summary duplicates count reflects complaints flagged as duplicate."""
+        make_complaint(is_duplicate=True)
+        make_complaint(is_duplicate=False)
+        summary = self._get_summary()
+        self.assertEqual(summary['duplicates'], 1)
+
+    def test_summary_zero_when_no_complaints(self):
+        """All summary counts are 0 when there are no complaints."""
+        summary = self._get_summary()
+        self.assertEqual(summary['total'], 0)
+        self.assertEqual(summary['high_priority'], 0)
+        self.assertEqual(summary['duplicates'], 0)
+
+
+# ---------------------------------------------------------------------------
+# 5. Dashboard search and filter
+# ---------------------------------------------------------------------------
+
+class DashboardFilterTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.staff = User.objects.create_user(
+            username='staff', password='pass', is_staff=True
+        )
+        self.client.login(username='staff', password='pass')
+
+        # Seed mixed complaints
+        make_complaint(description="Wi-Fi is down in the library", category="IT & Wi-Fi", priority="High", status="Open", department="IT Department")
+        make_complaint(description="Bus is late every morning", category="Transport", priority="Medium", status="Open", department="Transport Office")
+        make_complaint(description="Hostel room fan broken", category="Hostel", priority="Medium", status="Resolved", department="Hostel Management")
+        make_complaint(description="Classroom projector not working", category="Infrastructure", priority="Low", status="In Progress", department="Maintenance")
+        make_complaint(description="Exam marks not updated", category="Academic", priority="Low", status="Open", department="Academic Office")
+
+    def _complaints(self, params):
+        response = self.client.get(reverse('dashboard'), params)
+        return list(response.context['complaints'])
+
+    def test_no_filter_returns_all(self):
+        """No filter returns all 5 complaints."""
+        self.assertEqual(len(self._complaints({})), 5)
+
+    def test_filter_by_category(self):
+        """Filtering by category returns only matching complaints."""
+        results = self._complaints({'category': 'Transport'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].category, 'Transport')
+
+    def test_filter_by_priority_high(self):
+        """Filtering by priority=High returns only High complaints."""
+        results = self._complaints({'priority': 'High'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].priority, 'High')
+
+    def test_filter_by_status_resolved(self):
+        """Filtering by status=Resolved returns only Resolved complaints."""
+        results = self._complaints({'status': 'Resolved'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, 'Resolved')
+
+    def test_filter_by_status_in_progress(self):
+        """Filtering by status=In Progress returns only those complaints."""
+        results = self._complaints({'status': 'In Progress'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, 'In Progress')
+
+    def test_filter_by_department(self):
+        """Filtering by department returns only matching complaints."""
+        results = self._complaints({'department': 'Maintenance'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].department, 'Maintenance')
+
+    def test_search_by_keyword(self):
+        """Text search returns complaints whose description contains the keyword."""
+        results = self._complaints({'q': 'library'})
+        self.assertEqual(len(results), 1)
+        self.assertIn('library', results[0].description.lower())
+
+    def test_search_case_insensitive(self):
+        """Text search is case-insensitive."""
+        results = self._complaints({'q': 'BUS'})
+        self.assertEqual(len(results), 1)
+        self.assertIn('bus', results[0].description.lower())
+
+    def test_search_no_match_returns_empty(self):
+        """Text search with no match returns zero results."""
+        results = self._complaints({'q': 'xyznosuchthing'})
+        self.assertEqual(len(results), 0)
+
+    def test_combined_filter_category_and_priority(self):
+        """Combined category + priority filter works correctly."""
+        results = self._complaints({'category': 'IT & Wi-Fi', 'priority': 'High'})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].category, 'IT & Wi-Fi')
+        self.assertEqual(results[0].priority, 'High')
+
+    def test_filter_no_match_returns_empty(self):
+        """A filter that matches nothing returns an empty list."""
+        results = self._complaints({'category': 'Academic', 'priority': 'High'})
+        self.assertEqual(len(results), 0)
+
+
+# ---------------------------------------------------------------------------
+# 6. Status update endpoint
+# ---------------------------------------------------------------------------
+
+class StatusUpdateTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.staff = User.objects.create_user(
+            username='staff', password='pass', is_staff=True
+        )
+        self.non_staff = User.objects.create_user(
+            username='student', password='pass', is_staff=False
+        )
+
+    def test_status_update_persists(self):
+        """POSTing a new status to /dashboard/update/<id>/ persists the change."""
+        c = make_complaint(status='Open')
+        self.client.login(username='staff', password='pass')
+        self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'In Progress'},
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'In Progress')
+
+    def test_status_update_to_resolved(self):
+        """Status can be updated all the way to Resolved."""
+        c = make_complaint(status='Open')
+        self.client.login(username='staff', password='pass')
+        self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'Resolved'},
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'Resolved')
+
+    def test_status_update_redirects_to_dashboard(self):
+        """After update, the response redirects to /dashboard/."""
+        c = make_complaint()
+        self.client.login(username='staff', password='pass')
+        response = self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'In Progress'},
+        )
+        self.assertRedirects(response, reverse('dashboard'))
+
+    def test_invalid_status_not_saved(self):
+        """An invalid status value is rejected and the status stays unchanged."""
+        c = make_complaint(status='Open')
+        self.client.login(username='staff', password='pass')
+        self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'InvalidStatus'},
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'Open')
+
+    def test_unauthenticated_cannot_update_status(self):
+        """Unauthenticated users cannot change complaint status."""
+        c = make_complaint(status='Open')
+        self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'Resolved'},
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'Open')
+
+    def test_non_staff_cannot_update_status(self):
+        """Non-staff users cannot change complaint status."""
+        c = make_complaint(status='Open')
+        self.client.login(username='student', password='pass')
+        self.client.post(
+            reverse('update_status', args=[c.pk]),
+            {'status': 'Resolved'},
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'Open')
+
+    def test_nonexistent_complaint_returns_404(self):
+        """Update request for a non-existent complaint ID returns 404."""
+        self.client.login(username='staff', password='pass')
+        response = self.client.post(
+            reverse('update_status', args=[99999]),
+            {'status': 'Resolved'},
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# 7. Dashboard context keys
+# ---------------------------------------------------------------------------
+
+class DashboardContextTest(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.staff = User.objects.create_user(
+            username='staff', password='pass', is_staff=True
+        )
+        self.client.login(username='staff', password='pass')
+
+    def test_context_contains_complaints(self):
+        """Dashboard context includes 'complaints' queryset."""
+        response = self.client.get(reverse('dashboard'))
+        self.assertIn('complaints', response.context)
+
+    def test_context_contains_summary(self):
+        """Dashboard context includes 'summary' dict."""
+        response = self.client.get(reverse('dashboard'))
+        self.assertIn('summary', response.context)
+
+    def test_context_contains_status_choices(self):
+        """Dashboard context includes status_choices list."""
+        response = self.client.get(reverse('dashboard'))
+        self.assertIn('status_choices', response.context)
+        self.assertIn('Open', response.context['status_choices'])
+        self.assertIn('In Progress', response.context['status_choices'])
+        self.assertIn('Resolved', response.context['status_choices'])
+
+    def test_context_contains_categories(self):
+        """Dashboard context includes all five complaint categories."""
+        response = self.client.get(reverse('dashboard'))
+        self.assertIn('categories', response.context)
+        for cat in ['Academic', 'Hostel', 'Infrastructure', 'IT & Wi-Fi', 'Transport']:
+            self.assertIn(cat, response.context['categories'])
+
+    def test_complaints_ordered_newest_first(self):
+        """Dashboard returns complaints ordered newest-first (by pk descending as proxy)."""
+        c1 = make_complaint(description="First complaint")
+        c2 = make_complaint(description="Second complaint")
+        response = self.client.get(reverse('dashboard'))
+        complaints = list(response.context['complaints'])
+        pks = [c.pk for c in complaints]
+        # c2 was inserted after c1, so it should appear before c1 in the list
+        self.assertIn(c1.pk, pks)
+        self.assertIn(c2.pk, pks)
+        self.assertGreater(pks.index(c1.pk), pks.index(c2.pk))
+
+
+# ---------------------------------------------------------------------------
+# 8. ML prediction functions (unchanged baseline)
+# ---------------------------------------------------------------------------
+
+class MLPredictionTest(TestCase):
+
+    def test_predict_category_it_wifi(self):
+        self.assertEqual(predict_category("Wi-Fi is not working in Block C"), "IT & Wi-Fi")
+
+    def test_predict_category_hostel(self):
+        self.assertEqual(predict_category("There is no water supply in the hostel"), "Hostel")
+
+    def test_predict_category_transport(self):
+        self.assertEqual(predict_category("College bus is arriving late every morning"), "Transport")
+
+    def test_predict_priority_high(self):
+        self.assertEqual(predict_priority("Emergency! Fire near the chemistry lab"), "High")
+
+    def test_predict_priority_medium(self):
+        self.assertEqual(predict_priority("The projector is not working in Hall 3"), "Medium")
+
+    def test_predict_priority_low(self):
+        self.assertEqual(predict_priority("The canteen menu could use more variety"), "Low")
+
+    def test_detect_duplicate_empty_db(self):
+        self.assertFalse(detect_duplicate("Wi-Fi is down in Block A"))
+
+    def test_detect_exact_duplicate(self):
+        desc = "Wi-Fi is not working in Block A"
+        make_complaint(description=desc)
+        self.assertTrue(detect_duplicate(desc))
 
     def test_multilingual_complaint_creation(self):
         complaint = Complaint.objects.create(

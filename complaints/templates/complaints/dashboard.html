@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Staff Dashboard — CampusCare</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a56db 0%, #0e9f6e 100%);
+      color: #fff;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }
+    header .subtitle { font-size: 0.85rem; opacity: 0.85; margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 16px; font-size: 0.9rem; }
+    .header-right a {
+      color: #fff;
+      text-decoration: none;
+      background: rgba(255,255,255,0.2);
+      padding: 6px 14px;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .header-right a:hover { background: rgba(255,255,255,0.35); }
+
+    /* ── Main layout ── */
+    main { max-width: 1300px; margin: 0 auto; padding: 28px 24px; }
+
+    /* ── Summary cards ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .card .count { font-size: 2rem; font-weight: 700; }
+    .card .label { font-size: 0.8rem; color: #718096; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card.total  .count { color: #1a56db; }
+    .card.open   .count { color: #d97706; }
+    .card.inprog .count { color: #7c3aed; }
+    .card.done   .count { color: #059669; }
+    .card.high   .count { color: #dc2626; }
+    .card.dup    .count { color: #b45309; }
+
+    /* ── Filter / search bar ── */
+    .filter-bar {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 22px;
+    }
+    .filter-bar form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    .filter-bar .field { display: flex; flex-direction: column; gap: 4px; }
+    .filter-bar label { font-size: 0.75rem; font-weight: 600; color: #4a5568; text-transform: uppercase; letter-spacing: 0.04em; }
+    .filter-bar input,
+    .filter-bar select {
+      border: 1px solid #cbd5e0;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 0.9rem;
+      color: #2d3748;
+      background: #f7fafc;
+      min-width: 140px;
+    }
+    .filter-bar input:focus,
+    .filter-bar select:focus { outline: none; border-color: #1a56db; background: #fff; }
+    .filter-bar .btn-group { display: flex; gap: 8px; }
+    .btn {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn-primary { background: #1a56db; color: #fff; }
+    .btn-secondary { background: #e2e8f0; color: #4a5568; }
+
+    /* ── Results count ── */
+    .results-info { font-size: 0.85rem; color: #718096; margin-bottom: 12px; }
+    .results-info strong { color: #2d3748; }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    thead th {
+      background: #f7fafc;
+      padding: 13px 14px;
+      text-align: left;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #4a5568;
+      font-weight: 700;
+      border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #edf2f7; transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f7fafc; }
+
+    /* row highlights */
+    tbody tr.row-high { background: #fff5f5; }
+    tbody tr.row-high:hover { background: #fed7d7; }
+    tbody tr.row-dup { background: #fffbeb; }
+    tbody tr.row-dup:hover { background: #fef3c7; }
+    tbody tr.row-high.row-dup { background: #fff5f5; }
+
+    td { padding: 12px 14px; vertical-align: middle; }
+
+    /* badges */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-high    { background: #fee2e2; color: #991b1b; }
+    .badge-medium  { background: #fef3c7; color: #92400e; }
+    .badge-low     { background: #dcfce7; color: #166534; }
+    .badge-open    { background: #dbeafe; color: #1e40af; }
+    .badge-inprog  { background: #ede9fe; color: #5b21b6; }
+    .badge-resolved{ background: #d1fae5; color: #065f46; }
+    .badge-dup     { background: #fef3c7; color: #92400e; }
+
+    /* status update form */
+    .status-form { display: flex; align-items: center; gap: 6px; }
+    .status-form select {
+      border: 1px solid #cbd5e0;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.82rem;
+      background: #f7fafc;
+      color: #2d3748;
+    }
+    .status-form button {
+      padding: 4px 10px;
+      background: #1a56db;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .status-form button:hover { background: #1e40af; }
+
+    .desc-cell { max-width: 280px; word-break: break-word; }
+    .no-results { text-align: center; padding: 40px 20px; color: #718096; font-size: 1rem; }
+
+    /* ── Footer ── */
+    footer { text-align: center; padding: 22px; font-size: 0.8rem; color: #a0aec0; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏫 CampusCare — Staff Dashboard</h1>
+    <div class="subtitle">Complaint management portal for campus staff</div>
+  </div>
+  <div class="header-right">
+    <span>👤 {{ request.user.username }}</span>
+    <a href="{% url 'home' %}">Student Portal</a>
+    <a href="{% url 'logout' %}">Log out</a>
+  </div>
+</header>
+
+<main>
+
+  <!-- Summary cards -->
+  <div class="summary-grid">
+    <div class="card total">
+      <div class="count">{{ summary.total }}</div>
+      <div class="label">Total</div>
+    </div>
+    <div class="card open">
+      <div class="count">{{ summary.open }}</div>
+      <div class="label">Open</div>
+    </div>
+    <div class="card inprog">
+      <div class="count">{{ summary.in_progress }}</div>
+      <div class="label">In Progress</div>
+    </div>
+    <div class="card done">
+      <div class="count">{{ summary.resolved }}</div>
+      <div class="label">Resolved</div>
+    </div>
+    <div class="card high">
+      <div class="count">{{ summary.high_priority }}</div>
+      <div class="label">High Priority</div>
+    </div>
+    <div class="card dup">
+      <div class="count">{{ summary.duplicates }}</div>
+      <div class="label">Duplicates</div>
+    </div>
+  </div>
+
+  <!-- Filter / search bar -->
+  <div class="filter-bar">
+    <form method="get" action="{% url 'dashboard' %}">
+      <div class="field">
+        <label for="q">Search</label>
+        <input type="text" id="q" name="q" placeholder="Search complaints…" value="{{ search_query }}" />
+      </div>
+
+      <div class="field">
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="">All categories</option>
+          {% for cat in categories %}
+            <option value="{{ cat }}" {% if filter_category == cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="priority">Priority</label>
+        <select id="priority" name="priority">
+          <option value="">All priorities</option>
+          <option value="High"   {% if filter_priority == "High"   %}selected{% endif %}>High</option>
+          <option value="Medium" {% if filter_priority == "Medium" %}selected{% endif %}>Medium</option>
+          <option value="Low"    {% if filter_priority == "Low"    %}selected{% endif %}>Low</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="">All statuses</option>
+          {% for s in status_choices %}
+            <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="department">Department</label>
+        <select id="department" name="department">
+          <option value="">All departments</option>
+          {% for dept in departments %}
+            <option value="{{ dept }}" {% if filter_department == dept %}selected{% endif %}>{{ dept }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>&nbsp;</label>
+        <div class="btn-group">
+          <button type="submit" class="btn btn-primary">Apply</button>
+          <a href="{% url 'dashboard' %}" class="btn btn-secondary">Clear</a>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Results info -->
+  <div class="results-info">
+    Showing <strong>{{ complaints|length }}</strong> complaint{{ complaints|length|pluralize }} {% if search_query or filter_category or filter_priority or filter_status or filter_department %}(filtered){% endif %}
+  </div>
+
+  <!-- Complaints table -->
+  <div class="table-wrap">
+    {% if complaints %}
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Student</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Priority</th>
+          <th>Department</th>
+          <th>Flags</th>
+          <th>Submitted</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in complaints %}
+        <tr class="{% if c.priority == 'High' %}row-high{% endif %}{% if c.is_duplicate %} row-dup{% endif %}">
+          <td>{{ c.id }}</td>
+          <td>{{ c.student_name }}</td>
+          <td class="desc-cell">{{ c.description }}</td>
+          <td>{{ c.category }}</td>
+          <td>
+            {% if c.priority == "High" %}
+              <span class="badge badge-high">🔴 High</span>
+            {% elif c.priority == "Medium" %}
+              <span class="badge badge-medium">🟡 Medium</span>
+            {% else %}
+              <span class="badge badge-low">🟢 Low</span>
+            {% endif %}
+          </td>
+          <td>{{ c.department }}</td>
+          <td>
+            {% if c.is_duplicate %}
+              <span class="badge badge-dup">⚠ Duplicate</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap; font-size:0.82rem; color:#718096;">
+            {{ c.created_at|date:"d M Y" }}<br/>{{ c.created_at|time:"H:i" }}
+          </td>
+          <td>
+            <form class="status-form" method="post" action="{% url 'update_status' c.id %}">
+              {% csrf_token %}
+              <select name="status">
+                {% for s in status_choices %}
+                  <option value="{{ s }}" {% if c.status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="no-results">
+      No complaints found{% if search_query or filter_category or filter_priority or filter_status or filter_department %} matching these filters{% endif %}.
+    </div>
+    {% endif %}
+  </div>
+
+</main>
+
+<footer>CampusCare Staff Dashboard — for authorised campus staff only</footer>
+
+</body>
+</html>
