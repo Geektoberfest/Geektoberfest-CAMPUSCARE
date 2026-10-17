@@ -23,7 +23,10 @@ from .ml import (
     predict_category_with_confidence,
     predict_priority,
     detect_language,
-    detect_duplicate
+    detect_duplicate,
+    load_category_model,
+    train_category_model,
+    MODEL_PATH
 )
 
 User = get_user_model()
@@ -984,3 +987,56 @@ class ComplaintViewTest(TestCase):
         complaint = Complaint.objects.last()
         self.assertEqual(complaint.language, "Marathi")
         self.assertEqual(complaint.category, "Hostel")
+
+
+class ComplaintDuplicateDetectionTest(TestCase):
+
+    def setUp(self):
+        Complaint.objects.create(
+            student_name="Alice",
+            description="Wi-Fi is not working in Block C",
+            category="IT & Wi-Fi",
+            department="IT Department"
+        )
+        Complaint.objects.create(
+            student_name="Bob",
+            description="There is no water supply in hostel block B",
+            category="Hostel",
+            department="Hostel Management"
+        )
+
+    def test_empty_input_returns_false(self):
+        self.assertFalse(detect_duplicate(""))
+        self.assertFalse(detect_duplicate("   "))
+        self.assertFalse(detect_duplicate(None))
+
+    def test_exact_duplicate_detection(self):
+        self.assertTrue(detect_duplicate("Wi-Fi is not working in Block C"))
+        self.assertTrue(detect_duplicate("There is no water supply in hostel block B"))
+
+    def test_rephrased_duplicate_detection(self):
+        self.assertTrue(detect_duplicate("No water supply in hostel block B"))
+
+    def test_distinct_complaint_returns_false(self):
+        self.assertFalse(detect_duplicate("Projector bulb is fused in classroom 204"))
+
+    def test_category_scoped_duplicate_detection(self):
+        self.assertTrue(detect_duplicate("Wi-Fi is not working in Block C", category="IT & Wi-Fi"))
+        self.assertFalse(detect_duplicate("Wi-Fi is not working in Block C", category="Hostel"))
+
+
+class ComplaintModelPersistenceTest(TestCase):
+
+    def test_model_artifact_exists_and_loads(self):
+        import os
+        self.assertTrue(os.path.exists(MODEL_PATH), "category_model.joblib should exist in data/")
+        vec, model = load_category_model(model_path=MODEL_PATH, fallback_train=False)
+        self.assertIsNotNone(vec)
+        self.assertIsNotNone(model)
+        self.assertTrue(hasattr(model, "predict"))
+        self.assertTrue(hasattr(vec, "transform"))
+
+    def test_prediction_using_persisted_model(self):
+        category = predict_category("Wi-Fi is not working in central library")
+        self.assertEqual(category, "IT & Wi-Fi")
+

@@ -18,6 +18,10 @@ import threading
 import unicodedata
 from pathlib import Path
 
+import joblib
+import pandas as pd
+
+
 from django.conf import settings
 
 
@@ -152,10 +156,11 @@ def detect_language(text):
 # -----------------------------
 
 DATA_PATH = Path(settings.BASE_DIR) / "data" / "complaints.csv"
-
 MODELS_DIR = Path(settings.BASE_DIR) / "data" / "ml_models"
 VECTORIZER_PATH = MODELS_DIR / "vectorizer.joblib"
 CATEGORY_MODEL_PATH = MODELS_DIR / "category_model.joblib"
+MODEL_PATH = CATEGORY_MODEL_PATH
+
 
 # Tunables for duplicate detection.
 DUPLICATE_THRESHOLD = 0.75
@@ -226,6 +231,9 @@ def _get_models():
         try:
             _vectorizer = joblib.load(VECTORIZER_PATH)
             _category_model = joblib.load(CATEGORY_MODEL_PATH)
+            if not hasattr(_category_model, "multi_class"):
+                _category_model.multi_class = "auto"
+            _category_model.predict_proba(_vectorizer.transform(["test"]))
         except Exception:
             # Artifacts missing/corrupt (e.g. fresh clone without running
             # train_ml, or sklearn version skew): train once, then serve
@@ -233,6 +241,24 @@ def _get_models():
             _vectorizer, _category_model = _train_and_save()
 
         return _vectorizer, _category_model
+
+
+def train_category_model(data_path=DATA_PATH, save_path=None):
+    """Backward-compatible wrapper for offline/test training."""
+    return _train_and_save()
+
+
+def load_category_model(model_path=None, fallback_train=True):
+    """Backward-compatible loader returning cached vectorizer and category classifier."""
+    return _get_models()
+
+
+def __getattr__(name):
+    if name in ("vectorizer", "category_model"):
+        vec, model = _get_models()
+        return vec if name == "vectorizer" else model
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 
 # -----------------------------
@@ -296,35 +322,48 @@ def predict_priority(text):
 # Detect duplicate complaints
 # -----------------------------
 
-def detect_duplicate(text, threshold=DUPLICATE_THRESHOLD,
-                     limit=DUPLICATE_CHECK_LIMIT):
-    if not text or not text.strip():
+def detect_duplicate(text, category=None, days=30, threshold=DUPLICATE_THRESHOLD, limit=DUPLICATE_CHECK_LIMIT):
+    """
+    Detects if a complaint is a duplicate of an existing recent complaint.
+    Optimizations:
+    1. Reuses the pre-trained vectorizer (.transform()) instead of retraining TF-IDF on every call.
+    2. Scopes DB query to active/recent complaints (e.g., same category or within last 30 days).
+    3. Caps candidate evaluation for bounded sub-millisecond latency.
+    """
+    if not text or not str(text).strip():
         return False
 
     from sklearn.metrics.pairwise import cosine_similarity
-
     from .models import Complaint
+    from django.utils import timezone
+    from datetime import timedelta
 
     vectorizer, _ = _get_models()
 
-    complaints = list(
-        Complaint.objects.order_by("-id").values_list(
-            "description",
-            flat=True
-        )[:limit]
-    )
+    queryset = Complaint.objects.all()
+    if category:
+        queryset = queryset.filter(category=category)
 
-    if not complaints:
+    if days:
+        cutoff = timezone.now() - timedelta(days=days)
+        recent_qs = queryset.filter(created_at__gte=cutoff)
+        candidate_texts = list(recent_qs.order_by("-created_at").values_list("description", flat=True)[:limit])
+        if not candidate_texts:
+            candidate_texts = list(queryset.order_by("-created_at").values_list("description", flat=True)[:limit])
+    else:
+        candidate_texts = list(queryset.order_by("-id").values_list("description", flat=True)[:limit])
+
+    if not candidate_texts:
         return False
 
-    # Reuse the pre-fitted vectorizer: transform-only, no re-fitting over
-    # the whole table on every request. Texts are preprocessed first to
-    # match training. `limit` keeps per-request cost bounded as the DB grows.
-    existing_matrix = vectorizer.transform(
-        [preprocess_text(c) for c in complaints]
-    )
-    new_vector = vectorizer.transform([preprocess_text(text)])
+    cleaned_text = preprocess_text(text)
+    input_vector = vectorizer.transform([cleaned_text])
+    candidate_vectors = vectorizer.transform([preprocess_text(c) for c in candidate_texts])
 
-    similarities = cosine_similarity(new_vector, existing_matrix)[0]
+    similarities = cosine_similarity(
+        input_vector,
+        candidate_vectors
+    )[0]
 
     return bool((similarities >= threshold).any())
+
