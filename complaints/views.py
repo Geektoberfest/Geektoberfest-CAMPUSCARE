@@ -38,7 +38,7 @@ def home(request):
             language = detect_language(description)
             category, confidence = predict_category_with_confidence(description)
             priority = predict_priority(description)
-            duplicate = detect_duplicate(description)
+            duplicate = detect_duplicate(description, category=category)
 
             departments = {
                 "IT & Wi-Fi": "IT Department",

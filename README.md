@@ -127,21 +127,29 @@ This repository intentionally provides a working prototype rather than a finishe
 
 Participants should choose an issue, keep changes focused, run the tests, and link their Pull Request to the issue. Difficulty labels describe expected scope rather than a guaranteed completion time.
 
-## Testing
+## Testing & Model Training
 
-Run:
+Run test suite:
 
 ```bash
 python manage.py test
 ```
 
-The included tests cover core complaint creation and basic ML predictions.
+Train or refresh the serialized category model artifact:
+
+```bash
+python manage.py train_model
+```
+
+The included tests cover core complaint creation, multilingual NLP classification, priority heuristics, duplicate detection, and model persistence.
 
 ## Project Structure
 
 ```text
 CAMPUSCARE/
 ├── complaints/
+│   ├── management/commands/
+│   │   └── train_model.py
 │   ├── migrations/
 │   ├── templates/complaints/
 │   │   └── home.html
@@ -154,8 +162,10 @@ CAMPUSCARE/
 │   └── views.py
 ├── config/
 ├── data/
+│   ├── category_model.joblib
 │   ├── complaints.csv
-│   └── generate_dataset.py
+│   ├── generate_dataset.py
+│   └── train_model.py
 ├── db.sqlite3
 ├── manage.py
 ├── requirements.txt
